@@ -77,7 +77,7 @@ messages := []dashscope.Message{
 resp, err := client.Call(ctx, "", dashscope.WithMessages(messages))
 ```
 
-### 知识库检索
+### 知识库检索与回答来源
 
 ```go
 resp, err := client.Call(ctx, "请推荐一款3000元以下的手机",
@@ -85,6 +85,11 @@ resp, err := client.Call(ctx, "请推荐一款3000元以下的手机",
         "pipeline_ids": []string{"YOUR_PIPELINE_ID"},
     }),
 )
+// 回答来源：需在应用内开启「展示回答来源」
+for _, ref := range resp.Output.DocReferences {
+    fmt.Printf("来源: %s - %s\n", ref.FileName, ref.Content)
+}
+// 检索过程：WithHasThoughts(true) 时，thoughts 中 action_type=agentRag 的 observation
 ```
 
 ## 项目结构

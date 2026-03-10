@@ -4,6 +4,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -46,16 +47,9 @@ func singleTurn(client *dashscope.Client, ctx context.Context) {
 		fmt.Printf("调用失败: %v\n", err)
 		return
 	}
-	// 输出思考过程
-	if len(resp.Output.Thoughts) > 0 {
-		fmt.Println("【思考过程】")
-		for _, t := range resp.Output.Thoughts {
-			if t.ActionType == "reasoning" && t.Thought != "" {
-				fmt.Print(t.Thought)
-			}
-		}
-		fmt.Println("\n【回复】")
-	}
+	// 输出思考过程和知识库检索（与 Python SDK 一致）
+	printThoughtsAndObservations(resp.Output.Thoughts)
+	printDocReferences(resp.Output.DocReferences)
 	fmt.Printf("回复: %s\n", resp.Output.Text)
 	fmt.Printf("session_id: %s\n", resp.Output.SessionID)
 }
@@ -70,7 +64,8 @@ func multiTurn(client *dashscope.Client, ctx context.Context) {
 		return
 	}
 	fmt.Printf("用户: 精臣科技的开票信息\n")
-	printThoughts(resp1.Output.Thoughts)
+	printThoughtsAndObservations(resp1.Output.Thoughts)
+	printDocReferences(resp1.Output.DocReferences)
 	fmt.Printf("助手: %s\n\n", resp1.Output.Text)
 
 	// 第二轮（自动携带 session_id）
@@ -80,40 +75,111 @@ func multiTurn(client *dashscope.Client, ctx context.Context) {
 		return
 	}
 	fmt.Printf("用户: 精臣智慧的呢？\n")
-	printThoughts(resp2.Output.Thoughts)
+	printThoughtsAndObservations(resp2.Output.Thoughts)
+	printDocReferences(resp2.Output.DocReferences)
 	fmt.Printf("助手: %s\n", resp2.Output.Text)
 }
 
-func printThoughts(thoughts []dashscope.Thought) {
-	if len(thoughts) == 0 {
-		return
-	}
-	fmt.Print("【思考过程】 ")
-	for _, t := range thoughts {
-		if t.ActionType == "reasoning" && t.Thought != "" {
-			fmt.Print(t.Thought)
+// printThoughtsAndObservations 输出思考过程和知识库检索（与 Python SDK 一致）
+// 参考: https://help.aliyun.com/zh/model-studio/call-single-agent-application/
+func printThoughtsAndObservations(thoughts []dashscope.Thought) {
+	for i, t := range thoughts {
+		if t.Thought != "" {
+			fmt.Printf("[思考 %d] %s\n", i+1, t.Thought)
+		}
+		if t.Observation != nil {
+			formatted := formatJSONStr(t.Observation)
+			fmt.Printf("[观察 %d]\n%s\n", i+1, formatted)
 		}
 	}
-	fmt.Println()
+}
+
+// formatJSONStr 尝试解析并格式化 JSON，包括嵌套的 content[].text（知识库检索结构）
+func formatJSONStr(v any) string {
+	var obj any
+	switch val := v.(type) {
+	case string:
+		if err := json.Unmarshal([]byte(val), &obj); err != nil {
+			return val
+		}
+	default:
+		obj = v
+	}
+	// 递归格式化 content 中嵌套的 text
+	if m, ok := obj.(map[string]any); ok {
+		if content, ok := m["content"].([]any); ok {
+			for _, item := range content {
+				if itemMap, ok := item.(map[string]any); ok {
+					if text, ok := itemMap["text"]; ok {
+						if textStr, ok := text.(string); ok {
+							var nested any
+							if err := json.Unmarshal([]byte(textStr), &nested); err == nil {
+								itemMap["text"] = nested
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	b, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	return string(b)
+}
+
+// printDocReferences 输出知识库回答来源（需在应用内开启「展示回答来源」）
+func printDocReferences(refs []dashscope.DocReference) {
+	if len(refs) == 0 {
+		return
+	}
+	fmt.Println("【回答来源】")
+	for i, r := range refs {
+		fmt.Printf("  [%d] ", i+1)
+		if r.FileName != "" {
+			fmt.Printf("文件: %s ", r.FileName)
+		}
+		if r.Title != "" {
+			fmt.Printf("标题: %s ", r.Title)
+		}
+		if r.DocID != "" {
+			fmt.Printf("(doc_id: %s) ", r.DocID)
+		}
+		if r.Content != "" {
+			// 内容可能较长，截断显示
+			content := r.Content
+			if len(content) > 200 {
+				content = content[:200] + "..."
+			}
+			fmt.Printf("\n    内容: %s", content)
+		}
+		fmt.Println()
+	}
 }
 
 func streamOutput(client *dashscope.Client, ctx context.Context) {
 	fmt.Println("用户: 巴黎出差的差旅费是多少？")
-	fmt.Print("【思考过程】 ")
-	thinkingDone := false
+	var lastDocRefs []dashscope.DocReference
 	err := client.Stream(ctx, "巴黎出差的差旅费是多少？", func(chunk *dashscope.StreamChunk) bool {
-		// 先输出思考过程
-		for _, t := range chunk.Output.Thoughts {
-			if t.ActionType == "reasoning" && t.Thought != "" {
-				fmt.Print(t.Thought)
+		// 思考过程和知识库检索（与 Python SDK 一致）
+		if chunk.Output.Thoughts != nil {
+			for i, t := range chunk.Output.Thoughts {
+				if t.Thought != "" {
+					fmt.Printf("[思考 %d] %s\n", i+1, t.Thought)
+				}
+				if t.Observation != nil {
+					formatted := formatJSONStr(t.Observation)
+					fmt.Printf("[观察 %d]\n%s\n", i+1, formatted)
+				}
 			}
 		}
-		// 再输出回复
+		// 收集回答来源
+		if len(chunk.Output.DocReferences) > 0 {
+			lastDocRefs = chunk.Output.DocReferences
+		}
+		// 回复
 		if chunk.Output.Text != "" {
-			if !thinkingDone {
-				fmt.Println("\n【回复】")
-				thinkingDone = true
-			}
 			fmt.Print(chunk.Output.Text)
 		}
 		return true
@@ -122,5 +188,6 @@ func streamOutput(client *dashscope.Client, ctx context.Context) {
 		fmt.Printf("\n流式调用失败: %v\n", err)
 		return
 	}
+	printDocReferences(lastDocRefs)
 	fmt.Println()
 }
