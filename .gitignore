@@ -24,3 +24,7 @@ go.work
 # Env
 .env
 .env.local
+
+# API 响应数据（可能含敏感信息，可本地运行 scripts/fetch_api_responses.sh 生成）
+data/*.json
+data/*.txt

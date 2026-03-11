@@ -50,14 +50,14 @@ func WithRagOptions(opts any) CallOption {
 // WithHasThoughts 设置是否返回思考过程（深度思考模型）
 func WithHasThoughts(enable bool) CallOption {
 	return func(r *CallRequest) {
-		r.Parameters.HasThoughts = enable
+		r.Parameters.HasThoughts = &enable
 	}
 }
 
 // WithEnableThinking 开启思考模式（Qwen3 等模型）
 func WithEnableThinking(enable bool) CallOption {
 	return func(r *CallRequest) {
-		r.Parameters.EnableThinking = enable
+		r.Parameters.EnableThinking = &enable
 	}
 }
 
@@ -84,7 +84,7 @@ func (c *Client) Call(ctx context.Context, prompt string, opts ...CallOption) (*
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	resp, err := c.doRequest(ctx, httpReq)
+	resp, err := c.doRequest(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("do request: %w", err)
 	}

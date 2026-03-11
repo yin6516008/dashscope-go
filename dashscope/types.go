@@ -18,18 +18,24 @@ type Message struct {
 
 // CallParameters 调用参数
 type CallParameters struct {
-	IncrementalOutput bool   `json:"incremental_output,omitempty"`
-	HasThoughts      bool   `json:"has_thoughts,omitempty"`
-	EnableThinking   bool   `json:"enable_thinking,omitempty"`
-	RagOptions       any    `json:"rag_options,omitempty"`
+	IncrementalOutput bool  `json:"incremental_output"`
+	HasThoughts       *bool `json:"has_thoughts,omitempty"`
+	EnableThinking    *bool `json:"enable_thinking,omitempty"`
+	RagOptions        any   `json:"rag_options,omitempty"`
 }
 
 // CallRequest 完整请求体
 type CallRequest struct {
 	Input      CallInput      `json:"input"`
-	Parameters CallParameters `json:"parameters,omitempty"`
-	Debug      map[string]any `json:"debug,omitempty"`
+	Parameters CallParameters `json:"parameters"`
+	Debug      map[string]any `json:"debug"`
 }
+
+// FinishReason 常量
+const (
+	FinishReasonStop = "stop" // 响应完成
+	FinishReasonNull = "null" // 流式传输中（API 返回字符串 "null" 而非 JSON null）
+)
 
 // CallOutput 响应输出
 type CallOutput struct {
@@ -38,6 +44,16 @@ type CallOutput struct {
 	FinishReason  string        `json:"finish_reason"`
 	Thoughts      []Thought     `json:"thoughts,omitempty"`
 	DocReferences []DocReference `json:"doc_references,omitempty"`
+}
+
+// IsStreaming 判断流式响应是否仍在传输中
+func (o *CallOutput) IsStreaming() bool {
+	return o.FinishReason == FinishReasonNull
+}
+
+// IsFinished 判断响应是否已完成
+func (o *CallOutput) IsFinished() bool {
+	return o.FinishReason == FinishReasonStop
 }
 
 // DocReference 知识库检索的文档引用（回答来源）
@@ -52,14 +68,18 @@ type DocReference struct {
 }
 
 // Thought 思考过程（深度思考模型）
-// action_type: reasoning=思考过程, agentRag=知识库检索过程（内容在 observation）
+// action_type: reasoning=思考过程, mcp/agentRag=知识库检索过程（内容在 observation）
+// 流式模式下 thought/response 为增量片段，需在回调中自行累积
 // observation 可能为 JSON 字符串或对象，包含知识库检索的 nodes 等
 type Thought struct {
-	Action      string `json:"action"`
-	ActionType  string `json:"action_type"`
-	Thought     string `json:"thought"`
-	Response    string `json:"response"`
-	Observation any    `json:"observation,omitempty"` // 知识库检索过程（JSON 字符串或对象）
+	Action             string `json:"action"`
+	ActionType         string `json:"action_type"`
+	Thought            string `json:"thought"`
+	Response           string `json:"response"`
+	Observation        any    `json:"observation,omitempty"`         // 知识库检索过程（JSON 字符串或对象）
+	ActionName         string `json:"action_name,omitempty"`        // 中文描述，如"思考过程"
+	ActionInputStream  string `json:"action_input_stream,omitempty"` // 工具输入 JSON
+	Arguments          string `json:"arguments,omitempty"`           // 工具参数 JSON
 }
 
 // Usage 用量信息

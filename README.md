@@ -66,6 +66,8 @@ client.Stream(ctx, "写一首诗", func(chunk *dashscope.StreamChunk) bool {
 })
 ```
 
+> **流式思考过程**：开启 `WithHasThoughts(true)` 时，每个 chunk 的 `thought`/`response` 为**增量片段**，展示时需在回调中自行累积。
+
 ### 使用 messages 自行管理历史
 
 ```go

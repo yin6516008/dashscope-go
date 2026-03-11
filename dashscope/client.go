@@ -1,7 +1,6 @@
 package dashscope
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
@@ -39,7 +38,14 @@ func WithHTTPClient(cli *http.Client) ClientOption {
 }
 
 // NewClient 创建百炼应用调用客户端
+// apiKey 和 appID 不能为空，否则 panic
 func NewClient(apiKey, appID string, opts ...ClientOption) *Client {
+	if apiKey == "" {
+		panic("dashscope: apiKey must not be empty")
+	}
+	if appID == "" {
+		panic("dashscope: appID must not be empty")
+	}
 	c := &Client{
 		apiKey:  apiKey,
 		appID:   appID,
@@ -59,9 +65,8 @@ func (c *Client) completionURL() string {
 	return fmt.Sprintf("%s/apps/%s/completion", c.baseURL, c.appID)
 }
 
-// doRequest 发送 HTTP 请求
-func (c *Client) doRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
-	req = req.WithContext(ctx)
+// doRequest 发送 HTTP 请求（context 已由调用方通过 NewRequestWithContext 设置）
+func (c *Client) doRequest(req *http.Request) (*http.Response, error) {
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 	req.Header.Set("Content-Type", "application/json")
 	return c.httpCli.Do(req)

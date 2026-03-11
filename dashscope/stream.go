@@ -12,6 +12,11 @@ import (
 )
 
 // StreamChunk 流式响应块
+//
+// 注意事项：
+//   - finish_reason 在传输中为字符串 "null"，结束时为 "stop"，可用 Output.IsFinished() 判断
+//   - Usage 仅在最后一帧（finish_reason="stop"）有实际值，中间帧为空
+//   - 可能存在无 Thoughts 和 Text 的过渡帧（如工具调用切换），属正常行为
 type StreamChunk struct {
 	Output    CallOutput `json:"output"`
 	Usage     Usage      `json:"usage"`
@@ -45,7 +50,7 @@ func (c *Client) Stream(ctx context.Context, prompt string, callback StreamCallb
 	}
 	httpReq.Header.Set("X-DashScope-SSE", "enable")
 
-	resp, err := c.doRequest(ctx, httpReq)
+	resp, err := c.doRequest(httpReq)
 	if err != nil {
 		return fmt.Errorf("do request: %w", err)
 	}
@@ -53,6 +58,10 @@ func (c *Client) Stream(ctx context.Context, prompt string, callback StreamCallb
 
 	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(resp.Body)
+		var errResp ErrorResponse
+		if err := json.Unmarshal(respBody, &errResp); err == nil && errResp.Code != "" {
+			return fmt.Errorf("api error [%s]: %s (request_id: %s)", errResp.Code, errResp.Message, errResp.RequestID)
+		}
 		return fmt.Errorf("request failed: status=%d, body=%s", resp.StatusCode, string(respBody))
 	}
 
@@ -76,7 +85,7 @@ func parseSSEStream(r io.Reader, callback StreamCallback) error {
 		}
 		var chunk StreamChunk
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
+			return fmt.Errorf("unmarshal stream chunk: %w", err)
 		}
 		if !callback(&chunk) {
 			return nil
